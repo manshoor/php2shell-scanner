@@ -3,6 +3,7 @@ name = "websitescanner"
 version = "1.0.0"
 edition = "2021"
 description = "Passive version-detection scanner for known CVEs (php2shell and more)."
+license = "MIT"
 
 [[bin]]
 name = "scanner"

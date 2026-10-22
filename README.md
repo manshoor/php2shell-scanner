@@ -279,3 +279,7 @@ its fingerprint and classification.
   results. Its actionable status compares the upstream version only. For those
   packages confirm against your distribution's
   security advisory rather than the upstream version alone.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

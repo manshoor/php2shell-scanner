@@ -1,7 +1,7 @@
 //! Scan engine: resolve, guard against internal targets, fetch, classify.
 
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use crate::signatures::{Headers, Signature, Status};
@@ -35,13 +35,55 @@ pub fn is_blocked_ip(ip: IpAddr) -> bool {
                 || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64)
         }
         IpAddr::V6(v6) => {
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || ((v6.segments()[0] & 0xfe00) == 0xfc00) // unique local fc00::/7
-                || ((v6.segments()[0] & 0xffc0) == 0xfe80) // link-local fe80::/10
-                || v6.to_ipv4_mapped().map(IpAddr::V4).map(is_blocked_ip).unwrap_or(false)
+            let s = v6.segments();
+            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
+                return true; // ::1, ::, ff00::/8
+            }
+            if (s[0] & 0xfe00) == 0xfc00 {
+                return true; // unique local fc00::/7
+            }
+            if (s[0] & 0xffc0) == 0xfe80 {
+                return true; // link-local fe80::/10
+            }
+            if (s[0] & 0xffc0) == 0xfec0 {
+                return true; // deprecated site-local fec0::/10
+            }
+            // IPv6 forms that embed an IPv4 address can reach an internal v4 host
+            // through a v6 literal. Pull the v4 out of each and re-check it.
+            for embedded in embedded_ipv4s(&s) {
+                if is_blocked_ip(IpAddr::V4(embedded)) {
+                    return true;
+                }
+            }
+            false
         }
     }
+}
+
+/// IPv4 addresses embedded in an IPv6 address: IPv4-mapped (::ffff:a.b.c.d),
+/// IPv4-compatible (::a.b.c.d), 6to4 (2002:AABB:CCDD::/48) and NAT64
+/// (64:ff9b::/96). Returned so each can be run back through is_blocked_ip.
+fn embedded_ipv4s(s: &[u16; 8]) -> Vec<Ipv4Addr> {
+    let mut out = Vec::new();
+    let low = |hi: u16, lo: u16| {
+        Ipv4Addr::new((hi >> 8) as u8, (hi & 0xff) as u8, (lo >> 8) as u8, (lo & 0xff) as u8)
+    };
+    // IPv4-mapped ::ffff:a.b.c.d and IPv4-compatible ::a.b.c.d both have the top
+    // 96 bits zero (mapped sets s[5]=0xffff). Last 32 bits hold the IPv4.
+    let top96_zero = s[0..5].iter().all(|&x| x == 0);
+    if (top96_zero && (s[5] == 0 || s[5] == 0xffff)) && !(s[6] == 0 && s[7] == 0) {
+        out.push(low(s[6], s[7]));
+    }
+    // 6to4 2002:AABB:CCDD::/48 — embedded IPv4 in s[1], s[2].
+    if s[0] == 0x2002 {
+        out.push(low(s[1], s[2]));
+    }
+    // NAT64 64:ff9b::/96 (and the local 64:ff9b:1::/48 variant) — IPv4 in the
+    // last 32 bits.
+    if s[0] == 0x0064 && s[1] == 0xff9b {
+        out.push(low(s[6], s[7]));
+    }
+    out
 }
 
 /// Add http:// to a bare host.
@@ -333,6 +375,27 @@ pub(crate) mod tests {
             assert!(is_blocked_ip(ip.parse().unwrap()), "{ip} should be blocked");
         }
         assert!(is_blocked_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
+    }
+
+    #[test]
+    fn blocks_ipv6_internal_and_embedded() {
+        // multicast, site-local, and IPv6 forms that embed an internal IPv4.
+        for ip in [
+            "ff02::1",               // multicast
+            "fec0::1",               // deprecated site-local
+            "::ffff:127.0.0.1",      // IPv4-mapped loopback
+            "::ffff:10.0.0.1",       // IPv4-mapped private
+            "::7f00:1",              // IPv4-compatible 127.0.0.1
+            "::a9fe:a9fe",           // IPv4-compatible 169.254.169.254 (metadata)
+            "2002:7f00:1::",         // 6to4 of 127.0.0.1
+            "2002:a9fe:a9fe::",      // 6to4 of 169.254.169.254
+            "64:ff9b::7f00:1",       // NAT64 of 127.0.0.1
+            "64:ff9b::a9fe:a9fe",    // NAT64 of 169.254.169.254
+        ] {
+            assert!(is_blocked_ip(ip.parse().unwrap()), "{ip} should be blocked");
+        }
+        // A genuinely global IPv6 is allowed.
+        assert!(!is_blocked_ip("2606:4700:4700::1111".parse().unwrap()));
     }
 
     #[test]

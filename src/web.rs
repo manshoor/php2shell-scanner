@@ -75,7 +75,16 @@ fn handle_request(request: Request, timeout: Duration, inflight: &AtomicUsize) {
     let path = url.split('?').next().unwrap_or("/");
 
     if method == Method::Get && (path == "/" || path == "/index.html") {
-        let _ = request.respond(html_response(PAGE, "text/html; charset=utf-8"));
+        // Strict CSP: same-origin only, no external/remote anything. Defence in
+        // depth behind the DOM-safe rendering (results use textContent, below).
+        let csp = Header::from_bytes(
+            &b"Content-Security-Policy"[..],
+            &b"default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; \
+connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'"[..],
+        )
+        .unwrap();
+        let _ =
+            request.respond(html_response(PAGE, "text/html; charset=utf-8").with_header(csp));
         return;
     }
     if method == Method::Get && path == "/api/scan" {
@@ -304,9 +313,17 @@ go.addEventListener('click',async()=>{
     const d=await r.json();
     if(d.error){out.textContent='Error: '+d.error;sync();return;}
     const v=d.version?(' '+d.version):'';
-    out.innerHTML='<span class="badge '+d.status+'">'+d.status+'</span>'
-      +'<p class="kv"><b>'+d.product+v+'</b> — '+d.detail+'</p>'
-      +'<p class="kv">'+d.cves+'</p>';
+    // Build the result with textContent/DOM nodes, never innerHTML, so no field
+    // (detail/version carry the user-supplied URL) can inject markup.
+    out.textContent='';
+    const badge=document.createElement('span');
+    badge.className='badge '+String(d.status||'').replace(/[^A-Z_]/g,'');
+    badge.textContent=d.status;
+    const p1=document.createElement('p');p1.className='kv';
+    const b=document.createElement('b');b.textContent=d.product+v;
+    p1.appendChild(b);p1.appendChild(document.createTextNode(' — '+d.detail));
+    const p2=document.createElement('p');p2.className='kv';p2.textContent=d.cves;
+    out.appendChild(badge);out.appendChild(p1);out.appendChild(p2);
   }catch(e){out.textContent='Request failed: '+e;}
   sync();
 });

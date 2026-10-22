@@ -1,0 +1,6 @@
+# One target per line. Lines starting with # are ignored.
+# Bare hosts default to http://; give the scheme to force https.
+# Only list assets you are authorised to test.
+https://example.com
+example.org:8080
+http://localhost:8000

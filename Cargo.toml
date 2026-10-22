@@ -1,0 +1,25 @@
+[package]
+name = "websitescanner"
+version = "1.0.0"
+edition = "2021"
+description = "Passive version-detection scanner for known CVEs (php2shell and more)."
+
+[[bin]]
+name = "scanner"
+path = "src/main.rs"
+
+[dependencies]
+# Blocking HTTP client with rustls TLS (no system OpenSSL -> easy static deploy).
+ureq = "2"
+# Minimal HTTP server for the web UI. No async runtime, no framework.
+tiny_http = "0.12"
+# WHATWG URL parser — the same one ureq uses to choose the connection target.
+# Using it for the SSRF guard removes the parse differential between the two.
+url = "2"
+# Preserve prerelease ordering for the Next.js/RSC advisory boundaries.
+semver = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

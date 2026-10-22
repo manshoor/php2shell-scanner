@@ -1,0 +1,19 @@
+# Rust build output
+/target
+
+# Local scan inputs/outputs — keep real host lists and reports out of git
+targets.txt
+hosts.txt
+*.report.json
+report.json
+report.csv
+
+# Python
+__pycache__/
+*.pyc
+
+# Lab backups the mitigation script may create
+*.bak.*
+
+# macOS
+.DS_Store

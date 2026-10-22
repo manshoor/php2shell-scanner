@@ -1,0 +1,40 @@
+# php2shell patch-validation lab.
+#
+# Each service runs a different PHP version so you can watch the scanner's
+# verdict change, confirm the fix, and rehearse an upgrade. These are stock
+# PHP images serving a trivial page — there is NO exploit here. The point is to
+# validate detection and patching, not to attack anything.
+#
+#   8081 unpatched 8.3  -> VULNERABLE      (below 8.3.36)
+#   8082 patched   8.3  -> PATCHED         (8.3.36)
+#   8083 eol       5.6  -> EOL_VULNERABLE  (legacy PHP 5.6 deployment)
+#   8084 eol       7.2  -> EOL_VULNERABLE  (legacy PHP 7.2 deployment)
+#   8085 hidden    8.3  -> UNKNOWN_VERSION (expose_php Off, version suppressed)
+
+services:
+  vuln-8-3:
+    image: php:8.3.12-apache
+    ports: ["8081:80"]
+    volumes: ["./www:/var/www/html:ro"]
+
+  patched-8-3:
+    image: php:8.3.36-apache
+    ports: ["8082:80"]
+    volumes: ["./www:/var/www/html:ro"]
+
+  eol-5-6:
+    image: php:5.6-apache
+    ports: ["8083:80"]
+    volumes: ["./www:/var/www/html:ro"]
+
+  eol-7-2:
+    image: php:7.2-apache
+    ports: ["8084:80"]
+    volumes: ["./www:/var/www/html:ro"]
+
+  hidden-8-3:
+    image: php:8.3.12-apache
+    ports: ["8085:80"]
+    volumes:
+      - "./www:/var/www/html:ro"
+      - "./conf/hide.ini:/usr/local/etc/php/conf.d/zz-hide.ini:ro"
